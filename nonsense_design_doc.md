@@ -87,6 +87,33 @@
     - [X] Clean screen clear
     - [X] Orderly shutdown
 
+### Setup Menu (setup.lua)
+- [X] User Interface
+  - [X] Title box with program name
+  - [X] Selectable menu options
+  - [X] Visual highlighting of selected option
+  - [X] User controls display
+  - [X] Color scheme matching main program
+    - [X] Background: #170024 (dark purple)
+    - [X] Text: #ffbfbf (light pink)
+    - [X] Highlight: #ff8080 (bright pink)
+
+- [X] Menu Options
+  - [X] Launch Client
+  - [X] Launch Server
+  - [X] Exit
+
+- [X] Input Handling
+  - [X] Arrow key navigation
+  - [X] Enter key selection
+  - [X] Clean exit handling
+
+- [X] Script Management
+  - [X] Error handling for script launches
+  - [X] Terminal state preservation
+  - [X] Return to menu after script exit
+  - [X] Proper cleanup on exit
+
 ## Network Protocol
 - [T] Message Types
   - [X] Server presence signal
@@ -116,12 +143,21 @@
   - [X] Shuts down cleanly
   - [X] Exits on server disconnect
 
+- [X] Setup Menu
+  - [X] Displays correctly
+  - [X] Handles navigation
+  - [X] Launches scripts properly
+  - [X] Handles errors gracefully
+  - [X] Returns to menu after script exit
+  - [X] Cleans up on exit
+
 ## Error Handling
 - [X] Server not found on client start
 - [X] Server disconnect during operation
 - [T] Network message corruption
 - [X] Screen resolution too small
 - [X] Missing required components
+- [X] Script launch failures
 
 ## Known Issues
 - Client list may overflow if more than ~10 clients connect (scrolling not implemented)
@@ -135,6 +171,8 @@
 - [ ] Configuration file for colors/port
 - [ ] Scrollable client list
 - [ ] Terminal resize handling
+- [ ] Add version information to setup menu
+- [ ] Add configuration options to setup menu
 
 Status Key:
 - [ ] Not Started
