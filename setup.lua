@@ -164,13 +164,23 @@ end
 fs.mount(drive, mountPath)
 
 -- Set port if provided
-if %d then
-    os.setenv("NONSENSE_PORT", "%d")
-end
+%s
 
--- Run the script
-shell.execute(mountPath .. "/%s")
-]], port or 0, port or 0, scriptName)
+-- Run the script with error handling
+local success, err = pcall(function()
+    shell.execute(mountPath .. "/%s")
+end)
+
+if not success then
+    print("Error running script: " .. tostring(err))
+    print("Press any key to continue...")
+    require("event").pull("key_down")
+end
+]], 
+    -- Port configuration string
+    port and string.format('os.setenv("NONSENSE_PORT", "%d")', port) or 'os.setenv("NONSENSE_PORT", "1234")',
+    -- Script name
+    scriptName)
     
     local file = proxy.open("autorun.lua", "w")
     proxy.write(file, autorunContent)
@@ -288,12 +298,18 @@ local function configureServer()
         -- Download server file directly to drive
         downloadFile("nonsense_server.lua", mountPath)
         
-        -- Create autorun script
+        -- Create autorun script with port
         createAutorun(drive, "nonsense_server.lua", port)
+        
+        -- Create a port configuration file
+        local portFile = proxy.open("port.cfg", "w")
+        proxy.write(portFile, tostring(port))
+        proxy.close(portFile)
     end)
     
     if success then
         print("\nServer configuration complete!")
+        print(string.format("Server will run on port: %d", port))
         print("You can now reboot the computer to start the server.")
     else
         print("\nError configuring server!")
@@ -317,6 +333,15 @@ local function prepareClientDrive()
         labelDrive(drive)
     end
     
+    -- Ask for server port
+    print("\nEnter server port (or press Enter for default):")
+    local input = term.read():gsub("\n", "")
+    local port = input ~= "" and tonumber(input) or DEFAULT_PORT
+    
+    if not port or port < PORT_MIN or port > PORT_MAX then
+        port = DEFAULT_PORT
+    end
+    
     -- Create autorun script and copy client files
     print("\nPreparing drive...")
     
@@ -331,12 +356,18 @@ local function prepareClientDrive()
         -- Download client file directly to drive
         downloadFile("nonsense_client.lua", mountPath)
         
-        -- Create autorun script
-        createAutorun(drive, "nonsense_client.lua")
+        -- Create autorun script with port
+        createAutorun(drive, "nonsense_client.lua", port)
+        
+        -- Create a port configuration file
+        local portFile = proxy.open("port.cfg", "w")
+        proxy.write(portFile, tostring(port))
+        proxy.close(portFile)
     end)
     
     if success then
         print("\nClient drive preparation complete!")
+        print(string.format("Client will connect to port: %d", port))
         print("You can now insert this drive into any computer to run the client.")
     else
         print("\nError preparing client drive!")
