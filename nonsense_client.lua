@@ -32,6 +32,11 @@ local BG_COLOR = 0x170024    -- Dark purple
 local modem = component.modem
 modem.open(PORT)
 
+-- Configure wireless strength (max for Tier 2 is 400)
+if modem.isWireless() then
+    modem.setStrength(400)  -- Set to maximum range for Tier 2
+end
+
 -- Get screen dimensions
 local width, height = gpu.getResolution()
 if width < 70 or height < 20 then
@@ -45,22 +50,27 @@ local currentTime = 0
 
 -- Wait for server presence
 print("Waiting for server...")
+print("(Make sure server is running and within wireless range)")
 local timeout = computer.uptime() + TIMEOUT
 
 while not serverFound and computer.uptime() < timeout do
-    local e = {event.pull(0.5, "modem_message")}
+    local e = {event.pull(1, "modem_message")}  -- Increased wait time to 1 second
     if e[1] == "modem_message" then
-        local _, _, _, port, _, message_type = table.unpack(e)
+        local _, _, from, port, _, message_type = table.unpack(e)
         if port == PORT and message_type == MESSAGE_TYPES.PRESENCE then
             serverFound = true
             isRunning = true
+            print("Server found! Starting display...")
+            os.sleep(1)  -- Give time to read the message
             break
         end
     end
+    -- Send a discovery request
+    modem.broadcast(PORT, "ping")
 end
 
 if not serverFound then
-    error("No server found! Please start the server first.")
+    error("No server found! Please check:\n1. Server is running\n2. Both computers have wireless cards\n3. Computers are within range (400 blocks)")
 end
 
 -- Set up double buffering

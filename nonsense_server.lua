@@ -33,6 +33,11 @@ local MESSAGE_TYPES = {
 local modem = component.modem
 modem.open(PORT)
 
+-- Configure wireless strength (max for Tier 2 is 400)
+if modem.isWireless() then
+    modem.setStrength(400)  -- Set to maximum range for Tier 2
+end
+
 -- Set up screen
 local width, height = gpu.getResolution()
 local originalBackground = gpu.getBackground()
