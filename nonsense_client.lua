@@ -519,10 +519,31 @@ end
 
 -- Main display loop
 print("Connected to server!")
+
+-- Initialize display
 gpu.setBackground(BG_COLOR)
 term.clear()
 
+-- Initial display setup
+local ok, err = pcall(function()
+    updateDisplay()
+end)
+if not ok then
+    error("Failed to initialize display: " .. tostring(err))
+end
+
+-- Track last ping time
+local lastPing = computer.uptime()
+
 while isRunning do
+    local currentTime = computer.uptime()
+    
+    -- Send ping every second
+    if currentTime - lastPing >= 1 then
+        modem.broadcast(PORT, "ping")
+        lastPing = currentTime
+    end
+    
     local e = {event.pull(0.1)}
     
     if e[1] == "modem_message" then
@@ -530,9 +551,15 @@ while isRunning do
         if port == PORT then
             if message_type == MESSAGE_TYPES.TIME then
                 currentTime = message
-                updateDisplay()
+                local ok, err = pcall(function()
+                    updateDisplay()
+                end)
+                if not ok then
+                    error("Display update failed: " .. tostring(err))
+                end
             elseif message_type == MESSAGE_TYPES.RESET then
-                -- Handle reset display (function to be added)
+                currentTime = 0
+                updateDisplay()
             elseif message_type == MESSAGE_TYPES.SHUTDOWN then
                 -- Clean shutdown
                 gpu.setBackground(BG_COLOR)
@@ -545,7 +572,8 @@ while isRunning do
         if code == 19 then  -- 'r' key
             modem.broadcast(PORT, "reset")
         elseif code == 16 then  -- 'q' key
-            modem.broadcast(PORT, "shutdown")
+            modem.broadcast(PORT, "quit")
+            isRunning = false
         end
     end
 end
