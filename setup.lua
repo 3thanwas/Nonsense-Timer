@@ -166,33 +166,31 @@ local function configureServer()
     -- Create autorun script and copy server files
     print("\nPreparing drive...")
     
-    -- Mount drive and prepare files
-    local success = pcall(function()
-        local proxy = component.proxy(drive.address)
-        local mountPath = "/mnt/" .. drive.address:sub(1,3)
-        
-        -- Ensure drive is mounted
-        if not filesystem.exists(mountPath) then
-            filesystem.mount(proxy, mountPath)
-        end
-        
-        -- Download server file directly to drive
-        print("Downloading nonsense_server.lua...")
-        local url = BASE_URL .. "/nonsense_server.lua"
-        if not shell.execute("wget -f " .. url .. " " .. mountPath .. "/nonsense_server.lua") then
-            error("Failed to download server file")
-        end
-        
-        -- Create autorun script
-        createAutorun(drive, "nonsense_server.lua")
-    end)
+    -- Mount drive
+    local proxy = component.proxy(drive.address)
+    local mountPath = "/mnt/" .. drive.address:sub(1,3)
     
-    if success then
-        print("\nServer configuration complete!")
-        print("You can now reboot the computer to start the server.")
-    else
-        print("\nError configuring server!")
+    -- Ensure drive is mounted
+    if not filesystem.exists(mountPath) then
+        filesystem.mount(proxy, mountPath)
     end
+    
+    -- Download server file directly to drive
+    print("Downloading nonsense_server.lua...")
+    local url = BASE_URL .. "/nonsense_server.lua"
+    local result = shell.execute("wget -f " .. url .. " " .. mountPath .. "/nonsense_server.lua")
+    if not result then
+        print("\nError: Failed to download server file!")
+        print("Press any key to continue...")
+        event.pull("key_down")
+        return
+    end
+    
+    -- Create autorun script
+    createAutorun(drive, "nonsense_server.lua")
+    
+    print("\nServer configuration complete!")
+    print("You can now reboot the computer to start the server.")
     print("Press any key to continue...")
     event.pull("key_down")
 end
@@ -215,33 +213,31 @@ local function prepareClientDrive()
     -- Create autorun script and copy client files
     print("\nPreparing drive...")
     
-    -- Mount drive and prepare files
-    local success = pcall(function()
-        local proxy = component.proxy(drive.address)
-        local mountPath = "/mnt/" .. drive.address:sub(1,3)
-        
-        -- Ensure drive is mounted
-        if not filesystem.exists(mountPath) then
-            filesystem.mount(proxy, mountPath)
-        end
-        
-        -- Download client file directly to drive
-        print("Downloading nonsense_client.lua...")
-        local url = BASE_URL .. "/nonsense_client.lua"
-        if not shell.execute("wget -f " .. url .. " " .. mountPath .. "/nonsense_client.lua") then
-            error("Failed to download client file")
-        end
-        
-        -- Create autorun script
-        createAutorun(drive, "nonsense_client.lua")
-    end)
+    -- Mount drive
+    local proxy = component.proxy(drive.address)
+    local mountPath = "/mnt/" .. drive.address:sub(1,3)
     
-    if success then
-        print("\nClient drive preparation complete!")
-        print("You can now insert this drive into any computer to run the client.")
-    else
-        print("\nError preparing client drive!")
+    -- Ensure drive is mounted
+    if not filesystem.exists(mountPath) then
+        filesystem.mount(proxy, mountPath)
     end
+    
+    -- Download client file directly to drive
+    print("Downloading nonsense_client.lua...")
+    local url = BASE_URL .. "/nonsense_client.lua"
+    local result = shell.execute("wget -f " .. url .. " " .. mountPath .. "/nonsense_client.lua")
+    if not result then
+        print("\nError: Failed to download client file!")
+        print("Press any key to continue...")
+        event.pull("key_down")
+        return
+    end
+    
+    -- Create autorun script
+    createAutorun(drive, "nonsense_client.lua")
+    
+    print("\nClient drive preparation complete!")
+    print("You can now insert this drive into any computer to run the client.")
     print("Press any key to continue...")
     event.pull("key_down")
 end
