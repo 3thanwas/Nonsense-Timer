@@ -20,6 +20,12 @@ local REQUIRED_FILES = {
     "nonsense_server.lua"
 }
 
+-- Repository information
+local REPO_OWNER = "3thanwas"
+local REPO_NAME = "Nonsense-Timer"
+local BRANCH = "main"
+local BASE_URL = "https://raw.githubusercontent.com/" .. REPO_OWNER .. "/" .. REPO_NAME .. "/" .. BRANCH
+
 -- Save original colors
 local originalBackground = gpu.getBackground()
 local originalForeground = gpu.getForeground()
@@ -116,6 +122,27 @@ local function labelDrive(drive)
     end
 end
 
+-- Download a file from the repository
+local function downloadFile(filename, targetPath)
+    local url = BASE_URL .. "/" .. filename
+    gpu.setForeground(TEXT_COLOR)
+    print("Downloading " .. filename .. "...")
+    
+    -- Create target directory if it doesn't exist
+    if not filesystem.exists(targetPath) then
+        filesystem.makeDirectory(targetPath)
+    end
+    
+    -- Use wget with proper path formatting
+    local fullPath = filesystem.concat(targetPath, filename)
+    local result = shell.execute("wget -f " .. url .. " " .. fullPath)
+    if not result then
+        error("Failed to download " .. filename)
+        return false
+    end
+    return true
+end
+
 -- Create autorun script
 local function createAutorun(drive, scriptName, port)
     local proxy = component.proxy(drive.address)
@@ -126,7 +153,15 @@ local fs = require("filesystem")
 
 -- Mount this drive
 local _, drive = ...
-fs.mount(drive, "/home/nonsense-timer")
+local mountPath = "/home/nonsense-timer"
+
+-- Ensure old mounts are removed
+if fs.exists(mountPath) then
+    fs.umount(mountPath)
+end
+
+-- Mount the drive
+fs.mount(drive, mountPath)
 
 -- Set port if provided
 if %d then
@@ -134,7 +169,7 @@ if %d then
 end
 
 -- Run the script
-shell.execute("/home/nonsense-timer/%s")
+shell.execute(mountPath .. "/%s")
 ]], port or 0, port or 0, scriptName)
     
     local file = proxy.open("autorun.lua", "w")
@@ -202,52 +237,22 @@ local function updateFiles()
     term.clear()
     print("Updating Nonsense Timer files...")
     
-    -- Check and install OPPM if needed
-    if not checkOppm() then
-        print("Failed to install OPPM")
-        return false
-    end
+    local programDir = ensureDirectory()
     
-    -- Update OPPM repository
-    if not updateRepository() then
-        print("Failed to update package repository")
-        return false
-    end
-    
-    -- Install package
-    if not installPackage() then
-        print("Failed to install package")
-        return false
+    -- Download each required file
+    for _, filename in ipairs(REQUIRED_FILES) do
+        local success = pcall(function()
+            downloadFile(filename, programDir)
+        end)
+        if not success then
+            print("Failed to download " .. filename)
+            return false
+        end
     end
     
     print("\nAll files updated successfully!")
     print("Press any key to continue...")
     event.pull("key_down")
-    return true
-end
-
--- Copy file to drive
-local function copyFile(filename, sourcePath, targetPath)
-    if not filesystem.exists(sourcePath .. "/" .. filename) then
-        error("Source file not found: " .. sourcePath .. "/" .. filename)
-        return false
-    end
-    
-    -- Ensure target directory exists
-    if not filesystem.exists(targetPath) then
-        filesystem.makeDirectory(targetPath)
-    end
-    
-    -- Copy the file
-    local success = filesystem.copy(
-        filesystem.concat(sourcePath, filename),
-        filesystem.concat(targetPath, filename)
-    )
-    
-    if not success then
-        error("Failed to copy file: " .. filename)
-        return false
-    end
     return true
 end
 
@@ -271,9 +276,8 @@ local function configureServer()
     
     -- Create autorun script and copy server files
     print("\nPreparing drive...")
-    createAutorun(drive, "nonsense_server.lua", port)
     
-    -- Copy server file to drive
+    -- Mount drive
     local mountPath = "/mnt/" .. drive.address:sub(1,3)
     local success = pcall(function()
         -- Ensure drive is mounted
@@ -281,12 +285,11 @@ local function configureServer()
             filesystem.mount(component.proxy(drive.address), mountPath)
         end
         
-        -- Copy from installed location to drive
-        copyFile(
-            "nonsense_server.lua",
-            "/home/nonsense-timer",
-            filesystem.concat(mountPath, "nonsense-timer")
-        )
+        -- Download server file directly to drive
+        downloadFile("nonsense_server.lua", mountPath)
+        
+        -- Create autorun script
+        createAutorun(drive, "nonsense_server.lua", port)
     end)
     
     if success then
@@ -316,9 +319,8 @@ local function prepareClientDrive()
     
     -- Create autorun script and copy client files
     print("\nPreparing drive...")
-    createAutorun(drive, "nonsense_client.lua")
     
-    -- Copy client file to drive
+    -- Mount drive
     local mountPath = "/mnt/" .. drive.address:sub(1,3)
     local success = pcall(function()
         -- Ensure drive is mounted
@@ -326,12 +328,11 @@ local function prepareClientDrive()
             filesystem.mount(component.proxy(drive.address), mountPath)
         end
         
-        -- Copy from installed location to drive
-        copyFile(
-            "nonsense_client.lua",
-            "/home/nonsense-timer",
-            filesystem.concat(mountPath, "nonsense-timer")
-        )
+        -- Download client file directly to drive
+        downloadFile("nonsense_client.lua", mountPath)
+        
+        -- Create autorun script
+        createAutorun(drive, "nonsense_client.lua")
     end)
     
     if success then
