@@ -158,10 +158,15 @@ print("Nonsense Timer Server Starting...")
 -- Initial display
 updateDisplay()
 
+-- Initial presence broadcast
+modem.broadcast(PORT, MESSAGE_TYPES.PRESENCE)
+lastBroadcast = computer.uptime()
+
 while isRunning do
-    -- Broadcast time updates every second
+    -- Broadcast presence and time updates every second
     local currentTime = computer.uptime()
     if currentTime - lastBroadcast >= UPDATE_INTERVAL then
+        modem.broadcast(PORT, MESSAGE_TYPES.PRESENCE)
         modem.broadcast(PORT, MESSAGE_TYPES.TIME, currentTime - startTime)
         lastBroadcast = currentTime
         updateDisplay()
