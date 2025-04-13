@@ -226,6 +226,31 @@ local function updateFiles()
     return true
 end
 
+-- Copy file to drive
+local function copyFile(filename, sourcePath, targetPath)
+    if not filesystem.exists(sourcePath .. "/" .. filename) then
+        error("Source file not found: " .. sourcePath .. "/" .. filename)
+        return false
+    end
+    
+    -- Ensure target directory exists
+    if not filesystem.exists(targetPath) then
+        filesystem.makeDirectory(targetPath)
+    end
+    
+    -- Copy the file
+    local success = filesystem.copy(
+        filesystem.concat(sourcePath, filename),
+        filesystem.concat(targetPath, filename)
+    )
+    
+    if not success then
+        error("Failed to copy file: " .. filename)
+        return false
+    end
+    return true
+end
+
 -- Configure server
 local function configureServer()
     term.clear()
@@ -255,7 +280,13 @@ local function configureServer()
         if not filesystem.exists(mountPath) then
             filesystem.mount(component.proxy(drive.address), mountPath)
         end
-        downloadFile("nonsense_server.lua", mountPath)
+        
+        -- Copy from installed location to drive
+        copyFile(
+            "nonsense_server.lua",
+            "/home/nonsense-timer",
+            filesystem.concat(mountPath, "nonsense-timer")
+        )
     end)
     
     if success then
@@ -294,7 +325,13 @@ local function prepareClientDrive()
         if not filesystem.exists(mountPath) then
             filesystem.mount(component.proxy(drive.address), mountPath)
         end
-        downloadFile("nonsense_client.lua", mountPath)
+        
+        -- Copy from installed location to drive
+        copyFile(
+            "nonsense_client.lua",
+            "/home/nonsense-timer",
+            filesystem.concat(mountPath, "nonsense-timer")
+        )
     end)
     
     if success then
