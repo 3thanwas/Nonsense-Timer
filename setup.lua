@@ -2,12 +2,28 @@ local component = require("component")
 local term = require("term")
 local event = require("event")
 local shell = require("shell")
+local filesystem = require("filesystem")
 local gpu = component.gpu
 
 -- Constants
 local BG_COLOR = 0x170024    -- Dark purple
 local TEXT_COLOR = 0xFFBFBF  -- Light pink
 local HIGHLIGHT_COLOR = 0xff8080  -- Brighter pink for highlights
+local PORT_MIN = 1000        -- Minimum valid port
+local PORT_MAX = 9999        -- Maximum valid port
+local DEFAULT_PORT = 1234    -- Default port if none specified
+
+-- Repository information
+local REPO_OWNER = "3thanwas"
+local REPO_NAME = "Nonsense-Timer"
+local BRANCH = "main"
+local BASE_URL = "https://raw.githubusercontent.com/" .. REPO_OWNER .. "/" .. REPO_NAME .. "/refs/heads/" .. BRANCH
+
+-- Required files
+local REQUIRED_FILES = {
+    "nonsense_client.lua",
+    "nonsense_server.lua"
+}
 
 -- Save original colors
 local originalBackground = gpu.getBackground()
@@ -18,8 +34,9 @@ local width, height = gpu.getResolution()
 
 -- Menu options
 local options = {
-    { text = "Launch Client", file = "nonsense_client.lua" },
-    { text = "Launch Server", file = "nonsense_server.lua" },
+    { text = "Configure Server", file = "nonsense_server.lua" },
+    { text = "Prepare Client Drive", file = "nonsense_client.lua" },
+    { text = "Update Files", file = nil },
     { text = "Exit", file = nil }
 }
 
@@ -32,6 +49,225 @@ local BOX = {
     HORIZONTAL = "═",
     VERTICAL = "║"
 }
+
+-- List available drives
+local function listDrives()
+    local drives = {}
+    for address, type in component.list("filesystem") do
+        local proxy = component.proxy(address)
+        if proxy.getLabel() ~= "tmpfs" and proxy.getLabel() ~= "rom" then
+            table.insert(drives, {
+                address = address,
+                label = proxy.getLabel() or "Unnamed Drive",
+                spaceTotal = proxy.spaceTotal(),
+                spaceUsed = proxy.spaceTotal() - proxy.spaceAvailable()
+            })
+        end
+    end
+    return drives
+end
+
+-- Select a drive from the list
+local function selectDrive(purpose)
+    term.clear()
+    local drives = listDrives()
+    if #drives == 0 then
+        print("No suitable drives found!")
+        print("Press any key to continue...")
+        event.pull("key_down")
+        return nil
+    end
+    
+    print("Select drive for " .. purpose .. ":")
+    print("─────────────────────────────")
+    for i, drive in ipairs(drives) do
+        local usedSpace = math.floor(drive.spaceUsed / 1024)
+        local totalSpace = math.floor(drive.spaceTotal / 1024)
+        print(string.format("%d) %s (%dK/%dK used)", i, drive.label, usedSpace, totalSpace))
+    end
+    print("─────────────────────────────")
+    print("Enter number (or 0 to cancel):")
+    
+    while true do
+        local input = term.read()
+        local num = tonumber(input)
+        if num == 0 then return nil end
+        if num and num >= 1 and num <= #drives then
+            return drives[num]
+        end
+        print("Invalid selection. Try again:")
+    end
+end
+
+-- Label a drive
+local function labelDrive(drive)
+    print("Current label: " .. drive.label)
+    print("Enter new label (or press Enter to keep current):")
+    local input = term.read():gsub("\n", "")
+    if input ~= "" then
+        local proxy = component.proxy(drive.address)
+        proxy.setLabel(input)
+        drive.label = input
+    end
+end
+
+-- Create autorun script
+local function createAutorun(drive, scriptName, port)
+    local proxy = component.proxy(drive.address)
+    local autorunContent = string.format([[
+local component = require("component")
+local shell = require("shell")
+local fs = require("filesystem")
+
+-- Mount this drive
+local _, drive = ...
+fs.mount(drive, "/home/nonsense-timer")
+
+-- Set port if provided
+if %d then
+    os.setenv("NONSENSE_PORT", "%d")
+end
+
+-- Run the script
+shell.execute("/home/nonsense-timer/%s")
+]], port or 0, port or 0, scriptName)
+    
+    local file = proxy.open("autorun.lua", "w")
+    proxy.write(file, autorunContent)
+    proxy.close(file)
+end
+
+-- Configure port
+local function configurePort()
+    while true do
+        print(string.format("Enter port number (%d-%d) [default: %d]:", PORT_MIN, PORT_MAX, DEFAULT_PORT))
+        local input = term.read():gsub("\n", "")
+        if input == "" then return DEFAULT_PORT end
+        
+        local port = tonumber(input)
+        if port and port >= PORT_MIN and port <= PORT_MAX then
+            return port
+        end
+        print("Invalid port number!")
+    end
+end
+
+-- Create program directory if it doesn't exist
+local function ensureDirectory()
+    local programDir = "/home/nonsense-timer"
+    if not filesystem.exists(programDir) then
+        filesystem.makeDirectory(programDir)
+    end
+    return programDir
+end
+
+-- Download a file from the repository
+local function downloadFile(filename, targetPath)
+    local url = BASE_URL .. "/" .. filename
+    gpu.setForeground(TEXT_COLOR)
+    print("Downloading " .. filename .. "...")
+    
+    local result = shell.execute("wget -f " .. url .. " " .. targetPath .. "/" .. filename)
+    if not result then
+        error("Failed to download " .. filename)
+    end
+    return true
+end
+
+-- Update/download all required files
+local function updateFiles()
+    term.clear()
+    print("Updating Nonsense Timer files...")
+    
+    local programDir = ensureDirectory()
+    
+    -- Download each required file
+    for _, filename in ipairs(REQUIRED_FILES) do
+        local success = pcall(downloadFile, filename, programDir)
+        if not success then
+            print("Failed to download " .. filename)
+            return false
+        end
+    end
+    
+    print("\nAll files updated successfully!")
+    print("Press any key to continue...")
+    event.pull("key_down")
+    return true
+end
+
+-- Configure server
+local function configureServer()
+    term.clear()
+    print("=== Server Configuration ===")
+    
+    -- Select and configure drive
+    local drive = selectDrive("server installation")
+    if not drive then return end
+    
+    -- Label drive if desired
+    print("\nWould you like to label/relabel the drive? (y/n)")
+    if term.read():lower():sub(1,1) == "y" then
+        labelDrive(drive)
+    end
+    
+    -- Configure port
+    local port = configurePort()
+    
+    -- Create autorun script and copy server files
+    print("\nPreparing drive...")
+    createAutorun(drive, "nonsense_server.lua", port)
+    
+    -- Copy server file to drive
+    local proxy = component.proxy(drive.address)
+    local success = pcall(function()
+        downloadFile("nonsense_server.lua", "/mnt/" .. drive.address:sub(1,3))
+    end)
+    
+    if success then
+        print("\nServer configuration complete!")
+        print("You can now reboot the computer to start the server.")
+    else
+        print("\nError configuring server!")
+    end
+    print("Press any key to continue...")
+    event.pull("key_down")
+end
+
+-- Prepare client drive
+local function prepareClientDrive()
+    term.clear()
+    print("=== Client Drive Preparation ===")
+    
+    -- Select and configure drive
+    local drive = selectDrive("client installation")
+    if not drive then return end
+    
+    -- Label drive if desired
+    print("\nWould you like to label/relabel the drive? (y/n)")
+    if term.read():lower():sub(1,1) == "y" then
+        labelDrive(drive)
+    end
+    
+    -- Create autorun script and copy client files
+    print("\nPreparing drive...")
+    createAutorun(drive, "nonsense_client.lua")
+    
+    -- Copy client file to drive
+    local proxy = component.proxy(drive.address)
+    local success = pcall(function()
+        downloadFile("nonsense_client.lua", "/mnt/" .. drive.address:sub(1,3))
+    end)
+    
+    if success then
+        print("\nClient drive preparation complete!")
+        print("You can now insert this drive into any computer to run the client.")
+    else
+        print("\nError preparing client drive!")
+    end
+    print("Press any key to continue...")
+    event.pull("key_down")
+end
 
 -- Draw a box
 local function drawBox(x, y, w, h)
@@ -118,23 +354,22 @@ local function runMenu()
                 if selectedOption == #options then
                     -- Exit option
                     running = false
-                else
-                    -- Launch selected script
-                    term.clear()
-                    local success, err = pcall(function()
-                        shell.execute(options[selectedOption].file)
-                    end)
-                    if not success then
-                        term.clear()
-                        print("Error launching " .. options[selectedOption].text .. ":")
-                        print(err)
-                        print("\nPress any key to return to menu...")
-                        event.pull("key_down")
-                    end
+                elseif options[selectedOption].text == "Update Files" then
+                    updateFiles()
+                elseif options[selectedOption].text == "Configure Server" then
+                    configureServer()
+                elseif options[selectedOption].text == "Prepare Client Drive" then
+                    prepareClientDrive()
                 end
             end
         end
     end
+end
+
+-- Initial setup
+if not updateFiles() then
+    print("Initial setup failed. Please check your internet connection.")
+    return
 end
 
 -- Run the menu
