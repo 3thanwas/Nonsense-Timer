@@ -97,15 +97,25 @@ end
 
 -- Function to add debug message
 local function debug(msg)
-    table.insert(debugMessages, os.date("%H:%M:%S") .. ": " .. msg)
+    local timestamp = os.date("%H:%M:%S")
+    local message = timestamp .. ": " .. msg
+    table.insert(debugMessages, message)
     if #debugMessages > 5 then
         table.remove(debugMessages, 1)
     end
+    
     -- Draw debug messages at the bottom of the screen
     gpu.setBackground(0x000000)
     gpu.setForeground(0xFFFFFF)
     for i, message in ipairs(debugMessages) do
-        gpu.set(1, height - 6 + i, string.format("%-" .. width .. "s", message))
+        -- Truncate message if it's too long for the screen
+        if #message > width then
+            message = message:sub(1, width - 3) .. "..."
+        else
+            -- Pad with spaces to clear previous content
+            message = message .. string.rep(" ", width - #message)
+        end
+        gpu.set(1, height - 6 + i, message)
     end
     gpu.setBackground(BG_COLOR)
     gpu.setForeground(TEXT_COLOR)
