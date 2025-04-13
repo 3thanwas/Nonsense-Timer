@@ -54,19 +54,24 @@ print("(Make sure server is running and within wireless range)")
 local timeout = computer.uptime() + TIMEOUT
 
 while not serverFound and computer.uptime() < timeout do
-    local e = {event.pull(1, "modem_message")}  -- Increased wait time to 1 second
-    if e[1] == "modem_message" then
-        local _, _, from, port, _, message_type = table.unpack(e)
-        if port == PORT and message_type == MESSAGE_TYPES.PRESENCE then
-            serverFound = true
-            isRunning = true
-            print("Server found! Starting display...")
-            os.sleep(1)  -- Give time to read the message
-            break
-        end
-    end
     -- Send a discovery request
     modem.broadcast(PORT, "ping")
+    
+    -- Wait for response
+    local e = {event.pull(1, "modem_message")}
+    if e[1] == "modem_message" then
+        local _, _, from, port, _, message_type, data = table.unpack(e)
+        if port == PORT then
+            -- Accept either a presence message or a time update as confirmation
+            if message_type == MESSAGE_TYPES.PRESENCE or message_type == MESSAGE_TYPES.TIME then
+                serverFound = true
+                isRunning = true
+                print("Server found! Starting display...")
+                os.sleep(1)  -- Give time to read the message
+                break
+            end
+        end
+    end
 end
 
 if not serverFound then
