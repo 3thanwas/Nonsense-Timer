@@ -27,7 +27,6 @@ local width, height = gpu.getResolution()
 local options = {
     { text = "Configure Server", file = "nonsense_server.lua" },
     { text = "Prepare Client Drive", file = "nonsense_client.lua" },
-    { text = "Update Files", file = nil },
     { text = "Exit", file = nil }
 }
 
@@ -332,8 +331,6 @@ local function runMenu()
                 if selectedOption == #options then
                     -- Exit option
                     running = false
-                elseif options[selectedOption].text == "Update Files" then
-                    updateFiles()
                 elseif options[selectedOption].text == "Configure Server" then
                     configureServer()
                 elseif options[selectedOption].text == "Prepare Client Drive" then
@@ -342,12 +339,6 @@ local function runMenu()
             end
         end
     end
-end
-
--- Initial setup
-if not updateFiles() then
-    print("Initial setup failed. Please check your internet connection.")
-    return
 end
 
 -- Run the menu
