@@ -9,16 +9,6 @@ local gpu = component.gpu
 local BG_COLOR = 0x170024    -- Dark purple
 local TEXT_COLOR = 0xFFBFBF  -- Light pink
 local HIGHLIGHT_COLOR = 0xff8080  -- Brighter pink for highlights
-local PORT_MIN = 1000        -- Minimum valid port
-local PORT_MAX = 9999        -- Maximum valid port
-local DEFAULT_PORT = 1234    -- Default port if none specified
-
--- Package information
-local PACKAGE_NAME = "nonsense-timer"
-local REQUIRED_FILES = {
-    "nonsense_client.lua",
-    "nonsense_server.lua"
-}
 
 -- Repository information
 local REPO_OWNER = "3thanwas"
@@ -122,29 +112,8 @@ local function labelDrive(drive)
     end
 end
 
--- Download a file from the repository
-local function downloadFile(filename, targetPath)
-    local url = BASE_URL .. "/" .. filename
-    gpu.setForeground(TEXT_COLOR)
-    print("Downloading " .. filename .. "...")
-    
-    -- Create target directory if it doesn't exist
-    if not filesystem.exists(targetPath) then
-        filesystem.makeDirectory(targetPath)
-    end
-    
-    -- Use wget with proper path formatting
-    local fullPath = filesystem.concat(targetPath, filename)
-    local result = shell.execute("wget -f " .. url .. " " .. fullPath)
-    if not result then
-        error("Failed to download " .. filename)
-        return false
-    end
-    return true
-end
-
 -- Create autorun script
-local function createAutorun(drive, scriptName, port)
+local function createAutorun(drive, scriptName)
     local proxy = component.proxy(drive.address)
     local autorunContent = string.format([[
 local component = require("component")
@@ -163,9 +132,6 @@ end
 -- Mount the drive
 fs.mount(drive, mountPath)
 
--- Set port if provided
-%s
-
 -- Run the script with error handling
 local success, err = pcall(function()
     shell.execute(mountPath .. "/%s")
@@ -176,94 +142,11 @@ if not success then
     print("Press any key to continue...")
     require("event").pull("key_down")
 end
-]], 
-    -- Port configuration string
-    port and string.format('os.setenv("NONSENSE_PORT", "%d")', port) or 'os.setenv("NONSENSE_PORT", "1234")',
-    -- Script name
-    scriptName)
+]], scriptName)
     
     local file = proxy.open("autorun.lua", "w")
     proxy.write(file, autorunContent)
     proxy.close(file)
-end
-
--- Configure port
-local function configurePort()
-    while true do
-        print(string.format("Enter port number (%d-%d) [default: %d]:", PORT_MIN, PORT_MAX, DEFAULT_PORT))
-        local input = term.read():gsub("\n", "")
-        if input == "" then return DEFAULT_PORT end
-        
-        local port = tonumber(input)
-        if port and port >= PORT_MIN and port <= PORT_MAX then
-            return port
-        end
-        print("Invalid port number!")
-    end
-end
-
--- Check if OPPM is installed
-local function checkOppm()
-    if not filesystem.exists("/usr/bin/oppm") then
-        print("Installing OPPM...")
-        local result = shell.execute("wget -f https://raw.githubusercontent.com/OpenPrograms/OpenPrograms.github.io/master/repos.cfg /etc/oppm.cfg")
-        if not result then
-            error("Failed to download OPPM configuration")
-            return false
-        end
-        result = shell.execute("wget -f https://raw.githubusercontent.com/OpenPrograms/OpenPrograms.github.io/master/oppm/oppm.lua /usr/bin/oppm")
-        if not result then
-            error("Failed to download OPPM")
-            return false
-        end
-        shell.execute("chmod +x /usr/bin/oppm")
-    end
-    return true
-end
-
--- Update package repository
-local function updateRepository()
-    print("Updating package repository...")
-    return shell.execute("oppm update")
-end
-
--- Install required package
-local function installPackage()
-    print("Installing Nonsense Timer package...")
-    return shell.execute("oppm install " .. PACKAGE_NAME)
-end
-
--- Create program directory if it doesn't exist
-local function ensureDirectory()
-    local programDir = "/home/nonsense-timer"
-    if not filesystem.exists(programDir) then
-        filesystem.makeDirectory(programDir)
-    end
-    return programDir
-end
-
--- Update/download all required files
-local function updateFiles()
-    term.clear()
-    print("Updating Nonsense Timer files...")
-    
-    local programDir = ensureDirectory()
-    
-    -- Download each required file
-    for _, filename in ipairs(REQUIRED_FILES) do
-        local success = pcall(function()
-            downloadFile(filename, programDir)
-        end)
-        if not success then
-            print("Failed to download " .. filename)
-            return false
-        end
-    end
-    
-    print("\nAll files updated successfully!")
-    print("Press any key to continue...")
-    event.pull("key_down")
-    return true
 end
 
 -- Configure server
@@ -281,35 +164,32 @@ local function configureServer()
         labelDrive(drive)
     end
     
-    -- Configure port
-    local port = configurePort()
-    
     -- Create autorun script and copy server files
     print("\nPreparing drive...")
     
-    -- Mount drive
-    local mountPath = "/mnt/" .. drive.address:sub(1,3)
+    -- Mount drive and prepare files
     local success = pcall(function()
+        local proxy = component.proxy(drive.address)
+        local mountPath = "/mnt/" .. drive.address:sub(1,3)
+        
         -- Ensure drive is mounted
         if not filesystem.exists(mountPath) then
-            filesystem.mount(component.proxy(drive.address), mountPath)
+            filesystem.mount(proxy, mountPath)
         end
         
         -- Download server file directly to drive
-        downloadFile("nonsense_server.lua", mountPath)
+        print("Downloading nonsense_server.lua...")
+        local url = BASE_URL .. "/nonsense_server.lua"
+        if not shell.execute("wget -f " .. url .. " " .. mountPath .. "/nonsense_server.lua") then
+            error("Failed to download server file")
+        end
         
-        -- Create autorun script with port
-        createAutorun(drive, "nonsense_server.lua", port)
-        
-        -- Create a port configuration file
-        local portFile = proxy.open("port.cfg", "w")
-        proxy.write(portFile, tostring(port))
-        proxy.close(portFile)
+        -- Create autorun script
+        createAutorun(drive, "nonsense_server.lua")
     end)
     
     if success then
         print("\nServer configuration complete!")
-        print(string.format("Server will run on port: %d", port))
         print("You can now reboot the computer to start the server.")
     else
         print("\nError configuring server!")
@@ -333,41 +213,32 @@ local function prepareClientDrive()
         labelDrive(drive)
     end
     
-    -- Ask for server port
-    print("\nEnter server port (or press Enter for default):")
-    local input = term.read():gsub("\n", "")
-    local port = input ~= "" and tonumber(input) or DEFAULT_PORT
-    
-    if not port or port < PORT_MIN or port > PORT_MAX then
-        port = DEFAULT_PORT
-    end
-    
     -- Create autorun script and copy client files
     print("\nPreparing drive...")
     
-    -- Mount drive
-    local mountPath = "/mnt/" .. drive.address:sub(1,3)
+    -- Mount drive and prepare files
     local success = pcall(function()
+        local proxy = component.proxy(drive.address)
+        local mountPath = "/mnt/" .. drive.address:sub(1,3)
+        
         -- Ensure drive is mounted
         if not filesystem.exists(mountPath) then
-            filesystem.mount(component.proxy(drive.address), mountPath)
+            filesystem.mount(proxy, mountPath)
         end
         
         -- Download client file directly to drive
-        downloadFile("nonsense_client.lua", mountPath)
+        print("Downloading nonsense_client.lua...")
+        local url = BASE_URL .. "/nonsense_client.lua"
+        if not shell.execute("wget -f " .. url .. " " .. mountPath .. "/nonsense_client.lua") then
+            error("Failed to download client file")
+        end
         
-        -- Create autorun script with port
-        createAutorun(drive, "nonsense_client.lua", port)
-        
-        -- Create a port configuration file
-        local portFile = proxy.open("port.cfg", "w")
-        proxy.write(portFile, tostring(port))
-        proxy.close(portFile)
+        -- Create autorun script
+        createAutorun(drive, "nonsense_client.lua")
     end)
     
     if success then
         print("\nClient drive preparation complete!")
-        print(string.format("Client will connect to port: %d", port))
         print("You can now insert this drive into any computer to run the client.")
     else
         print("\nError preparing client drive!")
