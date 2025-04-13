@@ -47,26 +47,45 @@ end
 local isRunning = false
 local serverFound = false
 local currentTime = 0
+local debugMessages = {}
+
+-- Function to add debug message
+local function debug(msg)
+    table.insert(debugMessages, os.date("%H:%M:%S") .. ": " .. msg)
+    if #debugMessages > 5 then
+        table.remove(debugMessages, 1)
+    end
+    -- Draw debug messages at the bottom of the screen
+    gpu.setBackground(0x000000)
+    gpu.setForeground(0xFFFFFF)
+    for i, message in ipairs(debugMessages) do
+        gpu.set(1, height - 6 + i, string.format("%-" .. width .. "s", message))
+    end
+    gpu.setBackground(BG_COLOR)
+    gpu.setForeground(TEXT_COLOR)
+end
 
 -- Wait for server presence
-print("Waiting for server...")
-print("(Make sure server is running and within wireless range)")
+debug("Waiting for server...")
+debug("Make sure server is running and within wireless range")
 local timeout = computer.uptime() + TIMEOUT
 
 while not serverFound and computer.uptime() < timeout do
     -- Send a discovery request
     modem.broadcast(PORT, "ping")
+    debug("Sending ping...")
     
     -- Wait for response
     local e = {event.pull(1, "modem_message")}
     if e[1] == "modem_message" then
         local _, _, from, port, _, message_type, data = table.unpack(e)
+        debug("Received message: " .. message_type .. " from " .. from:sub(1,8))
         if port == PORT then
             -- Accept either a presence message or a time update as confirmation
             if message_type == MESSAGE_TYPES.PRESENCE or message_type == MESSAGE_TYPES.TIME then
                 serverFound = true
                 isRunning = true
-                print("Server found! Starting display...")
+                debug("Server found! Starting display...")
                 os.sleep(1)  -- Give time to read the message
                 break
             end
@@ -518,7 +537,7 @@ local function updateDisplay()
 end
 
 -- Main display loop
-print("Connected to server!")
+debug("Connected to server!")
 
 -- Initialize display
 gpu.setBackground(BG_COLOR)
@@ -532,8 +551,12 @@ if not ok then
     error("Failed to initialize display: " .. tostring(err))
 end
 
+debug("Display initialized successfully")
+debug("Waiting for time updates...")
+
 -- Track last ping time
 local lastPing = computer.uptime()
+local lastTimeUpdate = computer.uptime()
 
 while isRunning do
     local currentTime = computer.uptime()
@@ -541,26 +564,45 @@ while isRunning do
     -- Send ping every second
     if currentTime - lastPing >= 1 then
         modem.broadcast(PORT, "ping")
+        debug("Sending ping...")
         lastPing = currentTime
+    end
+    
+    -- Check for stale connection (no time updates in 10 seconds)
+    if currentTime - lastTimeUpdate > 10 then
+        debug("Warning: No time updates received for 10 seconds")
+        debug("Attempting to reconnect...")
+        modem.broadcast(PORT, "ping")
+        lastTimeUpdate = currentTime
     end
     
     local e = {event.pull(0.1)}
     
     if e[1] == "modem_message" then
-        local _, _, _, port, _, message_type, message = table.unpack(e)
+        local _, _, from, port, _, message_type, message = table.unpack(e)
         if port == PORT then
             if message_type == MESSAGE_TYPES.TIME then
-                currentTime = message
-                local ok, err = pcall(function()
-                    updateDisplay()
-                end)
-                if not ok then
-                    error("Display update failed: " .. tostring(err))
+                debug("Received time update: " .. tostring(message))
+                lastTimeUpdate = currentTime
+                
+                -- Ensure message is a number
+                if type(message) == "number" then
+                    currentTime = message
+                    local ok, err = pcall(function()
+                        updateDisplay()
+                    end)
+                    if not ok then
+                        debug("Display update failed: " .. tostring(err))
+                    end
+                else
+                    debug("Warning: Received invalid time value: " .. tostring(message))
                 end
             elseif message_type == MESSAGE_TYPES.RESET then
+                debug("Received reset command")
                 currentTime = 0
                 updateDisplay()
             elseif message_type == MESSAGE_TYPES.SHUTDOWN then
+                debug("Received shutdown command")
                 -- Clean shutdown
                 gpu.setBackground(BG_COLOR)
                 term.clear()
@@ -570,8 +612,10 @@ while isRunning do
     elseif e[1] == "key_down" then
         local _, _, _, code = table.unpack(e)
         if code == 19 then  -- 'r' key
+            debug("Sending reset command")
             modem.broadcast(PORT, "reset")
         elseif code == 16 then  -- 'q' key
+            debug("Sending quit command")
             modem.broadcast(PORT, "quit")
             isRunning = false
         end
@@ -579,10 +623,11 @@ while isRunning do
 end
 
 -- Cleanup
+debug("Shutting down client...")
 gpu.freeBuffer(secondaryBuffer)
 gpu.setActiveBuffer(originalBuffer)
 gpu.setBackground(0x000000)  -- Black
 gpu.setForeground(0xFFFFFF)  -- White
 term.clear()
 modem.close(PORT)
-print("Client shutdown complete") 
+debug("Client shutdown complete") 

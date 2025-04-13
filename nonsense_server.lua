@@ -53,6 +53,7 @@ local isRunning = true
 local startTime = computer.uptime()
 local connectedClients = {}
 local lastBroadcast = 0
+local debugMessages = {}
 
 -- Format time for display
 local function formatTime(seconds)
@@ -94,15 +95,31 @@ local function drawBox(x, y, w, h)
     end
 end
 
+-- Function to add debug message
+local function debug(msg)
+    table.insert(debugMessages, os.date("%H:%M:%S") .. ": " .. msg)
+    if #debugMessages > 5 then
+        table.remove(debugMessages, 1)
+    end
+    -- Draw debug messages at the bottom of the screen
+    gpu.setBackground(0x000000)
+    gpu.setForeground(0xFFFFFF)
+    for i, message in ipairs(debugMessages) do
+        gpu.set(1, height - 6 + i, string.format("%-" .. width .. "s", message))
+    end
+    gpu.setBackground(BG_COLOR)
+    gpu.setForeground(TEXT_COLOR)
+end
+
 -- Update display
 local function updateDisplay()
     -- Clear screen
     gpu.setBackground(BG_COLOR)
     gpu.setForeground(TEXT_COLOR)
-    gpu.fill(1, 1, width, height, " ")
+    gpu.fill(1, 1, width, height - 7, " ")  -- Leave space for debug messages
     
     -- Draw main box
-    drawBox(2, 1, width - 2, height - 1)
+    drawBox(2, 1, width - 2, height - 8)
     
     -- Draw title
     local title = "=== Nonsense Timer Server ==="
@@ -129,6 +146,7 @@ local function updateDisplay()
             -- Remove stale clients (not seen in last 5 seconds)
             if computer.uptime() - lastSeen > 5 then
                 connectedClients[addr] = nil
+                debug("Client " .. addr:sub(1,8) .. " timed out")
             else
                 local shortAddr = addr:sub(1, 8)
                 gpu.set(6, row, string.format("- %s... (last seen %.1fs ago)", 
@@ -139,31 +157,24 @@ local function updateDisplay()
     end
     
     -- Draw controls
-    gpu.set(4, height - 2, "Press Ctrl+C to quit")
-end
-
--- Network message handler
-local function handleMessage(_, _, sender, port, _, msgType, ...)
-    if msgType == "ping" then
-        connectedClients[sender] = computer.uptime()
-    elseif msgType == "reset" then
-        startTime = computer.uptime()
-        modem.broadcast(port, "reset")
-        updateDisplay()
-    elseif msgType == "quit" then
-        modem.broadcast(port, "shutdown")
-        return false
+    gpu.set(4, height - 9, "Press Ctrl+C to quit")
+    
+    -- Redraw debug messages
+    for i, message in ipairs(debugMessages) do
+        gpu.setBackground(0x000000)
+        gpu.setForeground(0xFFFFFF)
+        gpu.set(1, height - 6 + i, string.format("%-" .. width .. "s", message))
     end
-    return true
 end
 
 -- Main server loop
-print("Nonsense Timer Server Starting...")
+debug("Nonsense Timer Server Starting...")
 
 -- Initial display
 updateDisplay()
 
 -- Initial presence broadcast
+debug("Broadcasting initial presence signal...")
 modem.broadcast(PORT, MESSAGE_TYPES.PRESENCE)
 lastBroadcast = computer.uptime()
 
@@ -171,8 +182,10 @@ while isRunning do
     -- Broadcast presence and time updates every second
     local currentTime = computer.uptime()
     if currentTime - lastBroadcast >= UPDATE_INTERVAL then
+        local elapsedTime = currentTime - startTime
+        debug("Broadcasting time update: " .. tostring(elapsedTime))
         modem.broadcast(PORT, MESSAGE_TYPES.PRESENCE)
-        modem.broadcast(PORT, MESSAGE_TYPES.TIME, currentTime - startTime)
+        modem.broadcast(PORT, MESSAGE_TYPES.TIME, elapsedTime)
         lastBroadcast = currentTime
         updateDisplay()
     end
@@ -180,18 +193,34 @@ while isRunning do
     -- Handle incoming messages
     local e = {event.pull(0.1)}  -- Check events frequently
     if e[1] == "modem_message" then
-        if not handleMessage(table.unpack(e)) then
-            break
+        local _, _, sender, port, _, msgType, ... = table.unpack(e)
+        if port == PORT then
+            debug("Received " .. msgType .. " from " .. sender:sub(1,8))
+            if msgType == "ping" then
+                connectedClients[sender] = computer.uptime()
+                updateDisplay()
+            elseif msgType == "reset" then
+                debug("Resetting timer...")
+                startTime = computer.uptime()
+                modem.broadcast(PORT, MESSAGE_TYPES.RESET)
+                updateDisplay()
+            elseif msgType == "quit" then
+                debug("Received quit command, shutting down...")
+                modem.broadcast(PORT, MESSAGE_TYPES.SHUTDOWN)
+                break
+            end
         end
     elseif e[1] == "interrupted" then
+        debug("Received interrupt, shutting down...")
         modem.broadcast(PORT, MESSAGE_TYPES.SHUTDOWN)
         break
     end
 end
 
 -- Clean shutdown
+debug("Server shutdown initiated...")
 modem.close(PORT)
-print("Server shutdown complete")
+debug("Server shutdown complete")
 
 term.clear()
 gpu.setBackground(originalBackground)
