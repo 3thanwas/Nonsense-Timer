@@ -13,13 +13,8 @@ local PORT_MIN = 1000        -- Minimum valid port
 local PORT_MAX = 9999        -- Maximum valid port
 local DEFAULT_PORT = 1234    -- Default port if none specified
 
--- Repository information
-local REPO_OWNER = "3thanwas"
-local REPO_NAME = "Nonsense-Timer"
-local BRANCH = "main"
-local BASE_URL = "https://raw.githubusercontent.com/" .. REPO_OWNER .. "/" .. REPO_NAME .. "/refs/heads/" .. BRANCH
-
--- Required files
+-- Package information
+local PACKAGE_NAME = "nonsense-timer"
 local REQUIRED_FILES = {
     "nonsense_client.lua",
     "nonsense_server.lua"
@@ -55,12 +50,22 @@ local function listDrives()
     local drives = {}
     for address, type in component.list("filesystem") do
         local proxy = component.proxy(address)
-        if proxy.getLabel() ~= "tmpfs" and proxy.getLabel() ~= "rom" then
+        -- Skip system drives and check if drive is writable
+        if proxy.getLabel() ~= "tmpfs" and proxy.getLabel() ~= "rom" and proxy.isReadOnly() ~= true then
+            local label = proxy.getLabel() or "Unnamed Drive"
+            -- Safely get drive space information
+            local spaceTotal = 0
+            local spaceUsed = 0
+            pcall(function()
+                spaceTotal = proxy.spaceTotal() or 0
+                spaceUsed = spaceTotal - (proxy.spaceAvailable() or 0)
+            end)
+            
             table.insert(drives, {
                 address = address,
-                label = proxy.getLabel() or "Unnamed Drive",
-                spaceTotal = proxy.spaceTotal(),
-                spaceUsed = proxy.spaceTotal() - proxy.spaceAvailable()
+                label = label,
+                spaceTotal = spaceTotal,
+                spaceUsed = spaceUsed
             })
         end
     end
@@ -152,6 +157,37 @@ local function configurePort()
     end
 end
 
+-- Check if OPPM is installed
+local function checkOppm()
+    if not filesystem.exists("/usr/bin/oppm") then
+        print("Installing OPPM...")
+        local result = shell.execute("wget -f https://raw.githubusercontent.com/OpenPrograms/OpenPrograms.github.io/master/repos.cfg /etc/oppm.cfg")
+        if not result then
+            error("Failed to download OPPM configuration")
+            return false
+        end
+        result = shell.execute("wget -f https://raw.githubusercontent.com/OpenPrograms/OpenPrograms.github.io/master/oppm/oppm.lua /usr/bin/oppm")
+        if not result then
+            error("Failed to download OPPM")
+            return false
+        end
+        shell.execute("chmod +x /usr/bin/oppm")
+    end
+    return true
+end
+
+-- Update package repository
+local function updateRepository()
+    print("Updating package repository...")
+    return shell.execute("oppm update")
+end
+
+-- Install required package
+local function installPackage()
+    print("Installing Nonsense Timer package...")
+    return shell.execute("oppm install " .. PACKAGE_NAME)
+end
+
 -- Create program directory if it doesn't exist
 local function ensureDirectory()
     local programDir = "/home/nonsense-timer"
@@ -161,33 +197,27 @@ local function ensureDirectory()
     return programDir
 end
 
--- Download a file from the repository
-local function downloadFile(filename, targetPath)
-    local url = BASE_URL .. "/" .. filename
-    gpu.setForeground(TEXT_COLOR)
-    print("Downloading " .. filename .. "...")
-    
-    local result = shell.execute("wget -f " .. url .. " " .. targetPath .. "/" .. filename)
-    if not result then
-        error("Failed to download " .. filename)
-    end
-    return true
-end
-
 -- Update/download all required files
 local function updateFiles()
     term.clear()
     print("Updating Nonsense Timer files...")
     
-    local programDir = ensureDirectory()
+    -- Check and install OPPM if needed
+    if not checkOppm() then
+        print("Failed to install OPPM")
+        return false
+    end
     
-    -- Download each required file
-    for _, filename in ipairs(REQUIRED_FILES) do
-        local success = pcall(downloadFile, filename, programDir)
-        if not success then
-            print("Failed to download " .. filename)
-            return false
-        end
+    -- Update OPPM repository
+    if not updateRepository() then
+        print("Failed to update package repository")
+        return false
+    end
+    
+    -- Install package
+    if not installPackage() then
+        print("Failed to install package")
+        return false
     end
     
     print("\nAll files updated successfully!")
@@ -219,9 +249,13 @@ local function configureServer()
     createAutorun(drive, "nonsense_server.lua", port)
     
     -- Copy server file to drive
-    local proxy = component.proxy(drive.address)
+    local mountPath = "/mnt/" .. drive.address:sub(1,3)
     local success = pcall(function()
-        downloadFile("nonsense_server.lua", "/mnt/" .. drive.address:sub(1,3))
+        -- Ensure drive is mounted
+        if not filesystem.exists(mountPath) then
+            filesystem.mount(component.proxy(drive.address), mountPath)
+        end
+        downloadFile("nonsense_server.lua", mountPath)
     end)
     
     if success then
@@ -254,9 +288,13 @@ local function prepareClientDrive()
     createAutorun(drive, "nonsense_client.lua")
     
     -- Copy client file to drive
-    local proxy = component.proxy(drive.address)
+    local mountPath = "/mnt/" .. drive.address:sub(1,3)
     local success = pcall(function()
-        downloadFile("nonsense_client.lua", "/mnt/" .. drive.address:sub(1,3))
+        -- Ensure drive is mounted
+        if not filesystem.exists(mountPath) then
+            filesystem.mount(component.proxy(drive.address), mountPath)
+        end
+        downloadFile("nonsense_client.lua", mountPath)
     end)
     
     if success then
